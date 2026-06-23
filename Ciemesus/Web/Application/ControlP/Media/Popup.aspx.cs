@@ -1,7 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Web;
-using System.Web.UI;
 using System.Web.UI.WebControls;
 using Farschidus.Web.UI.WebControls;
 using BLL.BusinessEntity;
@@ -48,7 +45,7 @@ public partial class ControlP_Media_Popup : BasePage
             ViewState["pMediaSubjects"] = value.Serialize();
         }
     }
-    
+
     #endregion
 
     #region "Events"
@@ -73,8 +70,8 @@ public partial class ControlP_Media_Popup : BasePage
     {
         string daraggedPriority = grvPageList.DataKeys[e.DragedRowIndex][MediaSubjects.ColumnNames.Priority].ToString();
         string targetPriority = grvPageList.DataKeys[e.TargetRowIndex][MediaSubjects.ColumnNames.Priority].ToString();
-        bool direction = !(e.Status == Farschidus.Web.UI.WebControls.DragStatus.After);
-        this.ReOrder(pMediaSubjects, daraggedPriority, targetPriority, direction);
+        bool insertBefore = (e.Status == DragStatus.Before);
+        this.ReOrder(pMediaSubjects, daraggedPriority, targetPriority, insertBefore);
     }
 
     protected void Pager_PageIndexChanged(object sender, PagerPageIndexChangeEventArgs e)
@@ -219,7 +216,6 @@ public partial class ControlP_Media_Popup : BasePage
         grvList.DataBind();
         uplList.Update();
     }
-
     private void reorderMediaSubjects(MediaSubjects mediaSubjects)
     {
         mediaSubjects.LoadByIDSubjectAndIDMediaSubjectType(pSubjectID, pMediaSubjectTypeID);
@@ -269,50 +265,76 @@ public partial class ControlP_Media_Popup : BasePage
             return 1;
         }
     }
-    private void ReOrder(MediaSubjects unorderedMedias, string draggedPriority, string targetPriority, bool direction)
+    private void ReOrder(MediaSubjects mediaSubjects, string draggedPriority, string targetPriority, bool insertBefore)
     {
         try
         {
-            string initFilter = "";
-            if (!string.IsNullOrEmpty(unorderedMedias.Filter))
-            {
-                initFilter = unorderedMedias.Filter + " AND ";
-            }
-            unorderedMedias.Filter = initFilter + string.Format("{0}={1}", MediaSubjects.ColumnNames.Priority, draggedPriority);
-            unorderedMedias.pPriority = -1;
+            int draggedPriorityValue = Convert.ToInt32(draggedPriority);
+            int targetPriorityValue = Convert.ToInt32(targetPriority);
 
-            if (direction)
+            // Calculate the actual final priority and affected range based on move direction and insertBefore
+            int finalPriority;
+            string rangeFilter;
+            int shiftAmount;
+
+            if (draggedPriorityValue < targetPriorityValue)
             {
-                unorderedMedias.Filter = initFilter + string.Format("{0}>={1} AND {0} < {2}", MediaSubjects.ColumnNames.Priority, targetPriority, draggedPriority);
-                if (unorderedMedias.RowCount > 0)
-                {
-                    do
-                    {
-                        unorderedMedias.pPriority += 1;
-                    } while (unorderedMedias.MoveNext());
-                }
+                // Moving DOWN: insertBefore=true means land just before target (t-1), false means land on target (t)
+                finalPriority = insertBefore ? targetPriorityValue - 1 : targetPriorityValue;
+                rangeFilter = string.Format("{0}>{1} AND {0}<={2}",
+                    Subjects.ColumnNames.Priority, draggedPriorityValue, finalPriority);
+                shiftAmount = -1;
             }
             else
             {
-                unorderedMedias.Filter = initFilter + string.Format("{0}>{1} AND {0} <= {2}", MediaSubjects.ColumnNames.Priority, draggedPriority, targetPriority);
-                if (unorderedMedias.RowCount > 0)
-                {
-                    do
-                    {
-                        unorderedMedias.pPriority -= 1;
-                    } while (unorderedMedias.MoveNext());
-                }
+                // Moving UP: insertBefore=true means land on target (t), false means land just after target (t+1)
+                finalPriority = insertBefore ? targetPriorityValue : targetPriorityValue + 1;
+                rangeFilter = string.Format("{0}>={1} AND {0}<{2}",
+                    Subjects.ColumnNames.Priority, finalPriority, draggedPriorityValue);
+                shiftAmount = 1;
             }
-            unorderedMedias.Filter = initFilter + string.Format("{0}={1}", MediaSubjects.ColumnNames.Priority, "-1");
-            unorderedMedias.pPriority = Convert.ToInt32(targetPriority);
 
+            // No-op if the effective final position is the same as the current position
+            if (finalPriority == draggedPriorityValue)
+            {
+                return;
+            }
 
-            pMediaSubjects = unorderedMedias;
-            MediaSubjects mediaSubjects = new MediaSubjects();
-            mediaSubjects = pMediaSubjects;
-            mediaSubjects.Save();
+            string baseFilter = "";
+            if (!string.IsNullOrEmpty(mediaSubjects.Filter))
+            {
+                baseFilter = mediaSubjects.Filter + " AND ";
+            }
 
-            mLoadAllPageMedias();
+            // Step 1: Temporarily mark the dragged item to avoid conflicts during shifting
+            mediaSubjects.Filter = baseFilter + string.Format("{0}={1}", MediaSubjects.ColumnNames.Priority, draggedPriorityValue);
+            if (mediaSubjects.RowCount > 0)
+            {
+                mediaSubjects.pPriority = 0;
+            }
+
+            // Step 2: Shift items in the affected range in one pass
+            mediaSubjects.Filter = baseFilter + rangeFilter;
+            if (mediaSubjects.RowCount > 0)
+            {
+                do
+                {
+                    mediaSubjects.pPriority += shiftAmount;
+                } while (mediaSubjects.MoveNext());
+            }
+
+            // Step 3: Place the dragged item at its final position
+            mediaSubjects.Filter = baseFilter + string.Format("{0}=0", MediaSubjects.ColumnNames.Priority);
+            if (mediaSubjects.RowCount > 0)
+            {
+                mediaSubjects.pPriority = finalPriority;
+            }
+
+            pMediaSubjects = mediaSubjects;
+            pMediaSubjects.Save();
+
+            mLoadAll();
+
             pMessage.Add(Farschidus.Translator.AppTranslate["general.message.reordered"], Farschidus.Web.UI.Message.MessageTypes.Success);
         }
         catch (Exception ex)
@@ -325,7 +347,6 @@ public partial class ControlP_Media_Popup : BasePage
             uplAddEdit.Update();
         }
     }
-
     protected string mGetImageLink(object IDMedia)
     {
         string output = string.Empty;

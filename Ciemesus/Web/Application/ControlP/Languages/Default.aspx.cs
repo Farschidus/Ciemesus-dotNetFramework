@@ -56,7 +56,7 @@ public partial class PSM_Languages_Default : BaseCP
         if (!IsPostBack)
         {
             pShownLanguageDDL = false;
-            Title = Farschidus.Translator.AppTranslate["languages.default.page.title"];            
+            Title = Farschidus.Translator.AppTranslate["languages.default.page.title"];
             mInitialBindings();
         }
         listPager.PageSizeSelectClause = Farschidus.Translator.AppTranslate["general.label.pager.pageSizeSelectClause"];
@@ -94,7 +94,7 @@ public partial class PSM_Languages_Default : BaseCP
             if (((CheckBox)grvRow.FindControl("chkList")).Checked)
             {
                 //item = grvList.DataKeys[grvRow.RowIndex][Subjects.ColumnNames.IDSubject].ToString());
-                item = Convert.ToByte(grvList.DataKeys[grvRow.RowIndex][Languages.ColumnNames.IDLanguage].ToString());                  
+                item = Convert.ToByte(grvList.DataKeys[grvRow.RowIndex][Languages.ColumnNames.IDLanguage].ToString());
                 lang.LoadByPrimaryKey(item);
                 if (mValidateDelete(item))
                 {
@@ -118,8 +118,8 @@ public partial class PSM_Languages_Default : BaseCP
     {
         string daraggedPriority = grvList.DataKeys[e.DragedRowIndex][Languages.ColumnNames.Priority].ToString();
         string targetPriority = grvList.DataKeys[e.TargetRowIndex][Languages.ColumnNames.Priority].ToString();
-        bool direction = !(e.Status == Farschidus.Web.UI.WebControls.DragStatus.After);
-        this.ReOrder(pLanguages, daraggedPriority, targetPriority, direction);
+        bool insertBefore = (e.Status == DragStatus.Before);
+        this.ReOrder(pLanguages, daraggedPriority, targetPriority, insertBefore);
     }
     protected void grvList_RowEditing(object sender, GridViewEditEventArgs e)
     {
@@ -287,7 +287,7 @@ public partial class PSM_Languages_Default : BaseCP
 
                 if (cbxIsDefault.Checked)
                     Farschidus.Translator.SetPublicDefaultLanguage(languages.pIDLanguage.ToString());
-                
+
                 pMessage.Clear();
                 pMessage.Add(Farschidus.Translator.AppTranslate["general.message.success"], Farschidus.Web.UI.Message.MessageTypes.Success);
                 mShowMessage(pMessage);
@@ -386,45 +386,71 @@ public partial class PSM_Languages_Default : BaseCP
         }
 
     }
-    private void ReOrder(Languages unorderedLinks, string draggedPriority, string targetPriority, bool direction)
+    private void ReOrder(Languages languages, string draggedPriority, string targetPriority, bool insertBefore)
     {
-        string initFilter = "";
-        if (!string.IsNullOrEmpty(unorderedLinks.Filter))
-        {
-            initFilter = unorderedLinks.Filter + " AND ";
-        }
-        unorderedLinks.Filter = initFilter + string.Format("{0}={1}", Languages.ColumnNames.Priority, draggedPriority);
-        unorderedLinks.pPriority = -1;
+        int draggedPriorityValue = Convert.ToInt32(draggedPriority);
+        int targetPriorityValue = Convert.ToInt32(targetPriority);
 
-        if (direction)
+        // Calculate the actual final priority and affected range based on move direction and insertBefore
+        int finalPriority;
+        string rangeFilter;
+        int shiftAmount;
+
+        if (draggedPriorityValue < targetPriorityValue)
         {
-            unorderedLinks.Filter = initFilter + string.Format("{0}>={1} AND {0} < {2}", Languages.ColumnNames.Priority, targetPriority, draggedPriority);
-            if (unorderedLinks.RowCount > 0)
-            {
-                do
-                {
-                    unorderedLinks.pPriority += 1;
-                } while (unorderedLinks.MoveNext());
-            }
+            // Moving DOWN: insertBefore=true means land just before target (t-1), false means land on target (t)
+            finalPriority = insertBefore ? targetPriorityValue - 1 : targetPriorityValue;
+            rangeFilter = string.Format("{0}>{1} AND {0}<={2}",
+                Subjects.ColumnNames.Priority, draggedPriorityValue, finalPriority);
+            shiftAmount = -1;
         }
         else
         {
-            unorderedLinks.Filter = initFilter + string.Format("{0}>{1} AND {0} <= {2}", Languages.ColumnNames.Priority, draggedPriority, targetPriority);
-            if (unorderedLinks.RowCount > 0)
-            {
-                do
-                {
-                    unorderedLinks.pPriority -= 1;
-                } while (unorderedLinks.MoveNext());
-            }
+            // Moving UP: insertBefore=true means land on target (t), false means land just after target (t+1)
+            finalPriority = insertBefore ? targetPriorityValue : targetPriorityValue + 1;
+            rangeFilter = string.Format("{0}>={1} AND {0}<{2}",
+                Subjects.ColumnNames.Priority, finalPriority, draggedPriorityValue);
+            shiftAmount = 1;
         }
-        unorderedLinks.Filter = initFilter + string.Format("{0}={1}", Languages.ColumnNames.Priority, "-1");
-        unorderedLinks.pPriority = Convert.ToInt32(targetPriority);
 
-        pLanguages = unorderedLinks;
-        Languages languages = new Languages();
-        languages = pLanguages;
-        languages.Save();
+        // No-op if the effective final position is the same as the current position
+        if (finalPriority == draggedPriorityValue)
+        {
+            return;
+        }
+
+        string baseFilter = "";
+        if (!string.IsNullOrEmpty(languages.Filter))
+        {
+            baseFilter = languages.Filter + " AND ";
+        }
+
+        // Step 1: Temporarily mark the dragged item to avoid conflicts during shifting
+        languages.Filter = baseFilter + string.Format("{0}={1}", Languages.ColumnNames.Priority, draggedPriorityValue);
+        if (languages.RowCount > 0)
+        {
+            languages.pPriority = 0;
+        }
+
+        // Step 2: Shift items in the affected range in one pass
+        languages.Filter = baseFilter + rangeFilter;
+        if (languages.RowCount > 0)
+        {
+            do
+            {
+                languages.pPriority += shiftAmount;
+            } while (languages.MoveNext());
+        }
+
+        // Step 3: Place the dragged item at its final position
+        languages.Filter = baseFilter + string.Format("{0}=0", Languages.ColumnNames.Priority);
+        if (languages.RowCount > 0)
+        {
+            languages.pPriority = finalPriority;
+        }
+
+        pLanguages = languages;
+        pLanguages.Save();
 
         mLoadAll();
 

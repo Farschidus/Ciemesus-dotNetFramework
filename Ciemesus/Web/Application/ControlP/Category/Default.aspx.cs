@@ -52,9 +52,9 @@ public partial class PSM_Category_Default : BaseCP
     {
         if (!IsPostBack)
         {
-            pShowBannerManager = pShowPluginManager = pShownSearchButton = false;            
+            pShowBannerManager = pShowPluginManager = pShownSearchButton = false;
             grvList.EmptyDataText = Farschidus.Translator.AppTranslate["general.message.gridsEmptyDataText"];
-            Title = Farschidus.Translator.AppTranslate["categoryManaging.default.page.title"];            
+            Title = Farschidus.Translator.AppTranslate["categoryManaging.default.page.title"];
             mInitialBindings();
         }
         listPager.PageSizeSelectClause = Farschidus.Translator.AppTranslate["general.label.pager.pageSizeSelectClause"];
@@ -122,8 +122,8 @@ public partial class PSM_Category_Default : BaseCP
     {
         string daraggedPriority = grvList.DataKeys[e.DragedRowIndex][Subjects.ColumnNames.Priority].ToString();
         string targetPriority = grvList.DataKeys[e.TargetRowIndex][Subjects.ColumnNames.Priority].ToString();
-        bool direction = !(e.Status == Farschidus.Web.UI.WebControls.DragStatus.After);
-        this.ReOrder(pSubjects, daraggedPriority, targetPriority, direction);
+        bool insertBefore = (e.Status == DragStatus.Before);
+        this.ReOrder(pSubjects, daraggedPriority, targetPriority, insertBefore);
     }
     protected void grvList_RowEditing(object sender, GridViewEditEventArgs e)
     {
@@ -229,7 +229,7 @@ public partial class PSM_Category_Default : BaseCP
     private void mFillForm()
     {
         Subjects subject = new Subjects(pIDSubject.Value);
-        
+
         txtAlias.Text = subject.pAlias;
         txtTitle.Text = subject.pTitle;
         HiddenField TCMEValue = (HiddenField)tinyMCE.FindControl("TCMEValue");
@@ -244,8 +244,8 @@ public partial class PSM_Category_Default : BaseCP
         bool isValid = true;
         if (!Global.MethodsAndProps.mIsAliasUnique(txtAlias.Text, (byte)SubjectTypes.Enum.category, pLanguageID, pIDSubject))
         {
-                isValid = false;
-                pMessage.Add(Farschidus.Translator.AppTranslate["general.message.aliasDuplication"], Farschidus.Web.UI.Message.MessageTypes.Error);
+            isValid = false;
+            pMessage.Add(Farschidus.Translator.AppTranslate["general.message.aliasDuplication"], Farschidus.Web.UI.Message.MessageTypes.Error);
         }
         if (string.IsNullOrEmpty(txtTitle.Text) || string.IsNullOrEmpty(txtAlias.Text))
         {
@@ -272,7 +272,7 @@ public partial class PSM_Category_Default : BaseCP
                 {
                     subjects.AddNew();
                     subjects.pPriority = mSetPriority();
-                    pIDSubject = subjects.pIDSubject = Guid.NewGuid();                   
+                    pIDSubject = subjects.pIDSubject = Guid.NewGuid();
                     subjects.pDate = DateTime.UtcNow.AddHours(Global.MethodsAndProps.TimeZone);
                     isNew = true;
                 }
@@ -325,32 +325,32 @@ public partial class PSM_Category_Default : BaseCP
     }
     private void mDelete(Guid iDSubject, bool loadList = true)
     {
-       
-        DAL.GlobalCore.TransactionMgr tx = DAL.GlobalCore.TransactionMgr.ThreadTransactionMgr();    
+
+        DAL.GlobalCore.TransactionMgr tx = DAL.GlobalCore.TransactionMgr.ThreadTransactionMgr();
         try
-            {      
-                Subjects subjects = new Subjects(iDSubject);
-                subjects.MarkAsDeleted(false);
-                subjects.Save();
+        {
+            Subjects subjects = new Subjects(iDSubject);
+            subjects.MarkAsDeleted(false);
+            subjects.Save();
 
-                tx.CommitTransaction();
-                
-                if (loadList)
-                {
-                    pMessage.Clear();
-                    pMessage.Add(Farschidus.Translator.AppTranslate["general.message.deleted"], Farschidus.Web.UI.Message.MessageTypes.Success);
-                    mShowMessage(pMessage);
+            tx.CommitTransaction();
 
-                    mLoadList();
-                }
-            }
-            catch (Exception ex)
+            if (loadList)
             {
                 pMessage.Clear();
-                pMessage.Add(ex.Message, Farschidus.Web.UI.Message.MessageTypes.Error);
+                pMessage.Add(Farschidus.Translator.AppTranslate["general.message.deleted"], Farschidus.Web.UI.Message.MessageTypes.Success);
                 mShowMessage(pMessage);
-            }       
-  }
+
+                mLoadList();
+            }
+        }
+        catch (Exception ex)
+        {
+            pMessage.Clear();
+            pMessage.Add(ex.Message, Farschidus.Web.UI.Message.MessageTypes.Error);
+            mShowMessage(pMessage);
+        }
+    }
     private void mClear()
     {
         HiddenField TCMEValue = (HiddenField)tinyMCE.FindControl("TCMEValue");
@@ -392,45 +392,71 @@ public partial class PSM_Category_Default : BaseCP
             return 1;
         }
     }
-    private void ReOrder(Subjects unorderedSubjects, string draggedPriority, string targetPriority, bool direction)
+    private void ReOrder(Subjects subjects, string draggedPriority, string targetPriority, bool insertBefore)
     {
-        string initFilter = "";
-        if (!string.IsNullOrEmpty(unorderedSubjects.Filter))
-        {
-            initFilter = unorderedSubjects.Filter + " AND ";
-        }
-        unorderedSubjects.Filter = initFilter + string.Format("{0}={1}", Subjects.ColumnNames.Priority, draggedPriority);
-        unorderedSubjects.pPriority = -1;
+        int draggedPriorityValue = Convert.ToInt32(draggedPriority);
+        int targetPriorityValue = Convert.ToInt32(targetPriority);
 
-        if (direction)
+        // Calculate the actual final priority and affected range based on move direction and insertBefore
+        int finalPriority;
+        string rangeFilter;
+        int shiftAmount;
+
+        if (draggedPriorityValue < targetPriorityValue)
         {
-            unorderedSubjects.Filter = initFilter + string.Format("{0}>={1} AND {0} < {2}", Subjects.ColumnNames.Priority, targetPriority, draggedPriority);
-            if (unorderedSubjects.RowCount > 0)
-            {
-                do
-                {
-                    unorderedSubjects.pPriority += 1;
-                } while (unorderedSubjects.MoveNext());
-            }
+            // Moving DOWN: insertBefore=true means land just before target (t-1), false means land on target (t)
+            finalPriority = insertBefore ? targetPriorityValue - 1 : targetPriorityValue;
+            rangeFilter = string.Format("{0}>{1} AND {0}<={2}",
+                Subjects.ColumnNames.Priority, draggedPriorityValue, finalPriority);
+            shiftAmount = -1;
         }
         else
         {
-            unorderedSubjects.Filter = initFilter + string.Format("{0}>{1} AND {0} <= {2}", Subjects.ColumnNames.Priority, draggedPriority, targetPriority);
-            if (unorderedSubjects.RowCount > 0)
-            {
-                do
-                {
-                    unorderedSubjects.pPriority -= 1;
-                } while (unorderedSubjects.MoveNext());
-            }
+            // Moving UP: insertBefore=true means land on target (t), false means land just after target (t+1)
+            finalPriority = insertBefore ? targetPriorityValue : targetPriorityValue + 1;
+            rangeFilter = string.Format("{0}>={1} AND {0}<{2}",
+                Subjects.ColumnNames.Priority, finalPriority, draggedPriorityValue);
+            shiftAmount = 1;
         }
-        unorderedSubjects.Filter = initFilter + string.Format("{0}={1}", Subjects.ColumnNames.Priority, "-1");
-        unorderedSubjects.pPriority = Convert.ToInt32(targetPriority);
 
-        pSubjects = unorderedSubjects;
-        Subjects subjects = new Subjects();
-        subjects = pSubjects;
-        subjects.Save();
+        // No-op if the effective final position is the same as the current position
+        if (finalPriority == draggedPriorityValue)
+        {
+            return;
+        }
+
+        string baseFilter = "";
+        if (!string.IsNullOrEmpty(subjects.Filter))
+        {
+            baseFilter = subjects.Filter + " AND ";
+        }
+
+        // Step 1: Temporarily mark the dragged item to avoid conflicts during shifting
+        subjects.Filter = baseFilter + string.Format("{0}={1}", Subjects.ColumnNames.Priority, draggedPriorityValue);
+        if (subjects.RowCount > 0)
+        {
+            subjects.pPriority = 0;
+        }
+
+        // Step 2: Shift items in the affected range in one pass
+        subjects.Filter = baseFilter + rangeFilter;
+        if (subjects.RowCount > 0)
+        {
+            do
+            {
+                subjects.pPriority += shiftAmount;
+            } while (subjects.MoveNext());
+        }
+
+        // Step 3: Place the dragged item at its final position
+        subjects.Filter = baseFilter + string.Format("{0}=0", Subjects.ColumnNames.Priority);
+        if (subjects.RowCount > 0)
+        {
+            subjects.pPriority = finalPriority;
+        }
+
+        pSubjects = subjects;
+        pSubjects.Save();
 
         mLoadAll();
 

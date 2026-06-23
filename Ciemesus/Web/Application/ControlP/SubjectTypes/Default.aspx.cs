@@ -1,8 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Web;
-using System.Text;
-using System.Web.UI;
 using System.Web.UI.WebControls;
 using Farschidus.Web.UI.WebControls;
 using BLL.BusinessEntity;
@@ -144,8 +141,8 @@ public partial class PSM_SubjectTypes_Default : BaseCP
     {
         string daraggedPriority = grvList.DataKeys[e.DragedRowIndex][Subjects.ColumnNames.Priority].ToString();
         string targetPriority = grvList.DataKeys[e.TargetRowIndex][Subjects.ColumnNames.Priority].ToString();
-        bool direction = !(e.Status == Farschidus.Web.UI.WebControls.DragStatus.After);
-        this.ReOrder(pSubjects, daraggedPriority, targetPriority, direction);
+        bool insertBefore = (e.Status == DragStatus.Before);
+        this.ReOrder(pSubjects, daraggedPriority, targetPriority, insertBefore);
     }
     protected void grvList_RowEditing(object sender, GridViewEditEventArgs e)
     {
@@ -433,45 +430,71 @@ public partial class PSM_SubjectTypes_Default : BaseCP
             return 1;
         }
     }
-    private void ReOrder(Subjects unorderedSubjects, string draggedPriority, string targetPriority, bool direction)
+    private void ReOrder(Subjects subjects, string draggedPriority, string targetPriority, bool insertBefore)
     {
-        string initFilter = "";
-        if (!string.IsNullOrEmpty(unorderedSubjects.Filter))
-        {
-            initFilter = unorderedSubjects.Filter + " AND ";
-        }
-        unorderedSubjects.Filter = initFilter + string.Format("{0}={1}", Subjects.ColumnNames.Priority, draggedPriority);
-        unorderedSubjects.pPriority = -1;
+        int draggedPriorityValue = Convert.ToInt32(draggedPriority);
+        int targetPriorityValue = Convert.ToInt32(targetPriority);
 
-        if (direction)
+        // Calculate the actual final priority and affected range based on move direction and insertBefore
+        int finalPriority;
+        string rangeFilter;
+        int shiftAmount;
+
+        if (draggedPriorityValue < targetPriorityValue)
         {
-            unorderedSubjects.Filter = initFilter + string.Format("{0}>={1} AND {0} < {2}", Subjects.ColumnNames.Priority, targetPriority, draggedPriority);
-            if (unorderedSubjects.RowCount > 0)
-            {
-                do
-                {
-                    unorderedSubjects.pPriority += 1;
-                } while (unorderedSubjects.MoveNext());
-            }
+            // Moving DOWN: insertBefore=true means land just before target (t-1), false means land on target (t)
+            finalPriority = insertBefore ? targetPriorityValue - 1 : targetPriorityValue;
+            rangeFilter = string.Format("{0}>{1} AND {0}<={2}",
+                Subjects.ColumnNames.Priority, draggedPriorityValue, finalPriority);
+            shiftAmount = -1;
         }
         else
         {
-            unorderedSubjects.Filter = initFilter + string.Format("{0}>{1} AND {0} <= {2}", Subjects.ColumnNames.Priority, draggedPriority, targetPriority);
-            if (unorderedSubjects.RowCount > 0)
-            {
-                do
-                {
-                    unorderedSubjects.pPriority -= 1;
-                } while (unorderedSubjects.MoveNext());
-            }
+            // Moving UP: insertBefore=true means land on target (t), false means land just after target (t+1)
+            finalPriority = insertBefore ? targetPriorityValue : targetPriorityValue + 1;
+            rangeFilter = string.Format("{0}>={1} AND {0}<{2}",
+                Subjects.ColumnNames.Priority, finalPriority, draggedPriorityValue);
+            shiftAmount = 1;
         }
-        unorderedSubjects.Filter = initFilter + string.Format("{0}={1}", Subjects.ColumnNames.Priority, "-1");
-        unorderedSubjects.pPriority = Convert.ToInt32(targetPriority);
 
-        pSubjects = unorderedSubjects;
-        Subjects subjects = new Subjects();
-        subjects = pSubjects;
-        subjects.Save();
+        // No-op if the effective final position is the same as the current position
+        if (finalPriority == draggedPriorityValue)
+        {
+            return;
+        }
+
+        string baseFilter = "";
+        if (!string.IsNullOrEmpty(subjects.Filter))
+        {
+            baseFilter = subjects.Filter + " AND ";
+        }
+
+        // Step 1: Temporarily mark the dragged item to avoid conflicts during shifting
+        subjects.Filter = baseFilter + string.Format("{0}={1}", Subjects.ColumnNames.Priority, draggedPriorityValue);
+        if (subjects.RowCount > 0)
+        {
+            subjects.pPriority = 0;
+        }
+
+        // Step 2: Shift items in the affected range in one pass
+        subjects.Filter = baseFilter + rangeFilter;
+        if (subjects.RowCount > 0)
+        {
+            do
+            {
+                subjects.pPriority += shiftAmount;
+            } while (subjects.MoveNext());
+        }
+
+        // Step 3: Place the dragged item at its final position
+        subjects.Filter = baseFilter + string.Format("{0}=0", Subjects.ColumnNames.Priority);
+        if (subjects.RowCount > 0)
+        {
+            subjects.pPriority = finalPriority;
+        }
+
+        pSubjects = subjects;
+        pSubjects.Save();
 
         mLoadAll();
 
@@ -484,7 +507,7 @@ public partial class PSM_SubjectTypes_Default : BaseCP
         pUpdatePanelToolbarButtons.Update();
     }
     private void mLoadGroupsDDL()
-    
+
     {
         ddlGroupNames.Items.Clear();
         List<BLL.Hardcodes.Item> ddlItems = new List<BLL.Hardcodes.Item>();
