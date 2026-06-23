@@ -247,7 +247,7 @@ public partial class PSM_Medias_Default : BaseCP
         //TCMEValue.Value = medias.pDescription;
         txtDescription.Text = medias.pDescription;
         txtUrl.Text = medias.pUrl;
-        txtDate.Text = medias.pDate.ToShortDateString();
+        txtDate.Text = medias.pDate.ToString(Global.MethodsAndProps.DateFormat);
 
         string[] imageFile = System.IO.Directory.GetFiles(MapPath(Global.Constants.FOLDER_MEDIAS), medias.pIDMedia.ToString() + ".*");
         if (imageFile.Length > 0)

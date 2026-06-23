@@ -140,10 +140,11 @@
                             <asp:RequiredFieldValidator ID="rfvDate" runat="server" ErrorMessage="*" ControlToValidate="txtDate"
                                 ValidationGroup="ValGroup"></asp:RequiredFieldValidator>
                             <ajax:MaskedEditExtender ID="DateExtender" runat="server" TargetControlID="txtDate"
-                                Mask="99/99/9999" MessageValidatorTip="true" OnFocusCssClass="MaskedEditFocus"
+                                Mask="9999/99/99" MessageValidatorTip="true" OnFocusCssClass="MaskedEditFocus"
                                 OnInvalidCssClass="MaskedEditError" MaskType="Date" DisplayMoney="Left" AcceptNegative="Left"
                                 ErrorTooltipEnabled="True" />
-                            <ajax:CalendarExtender ID="calExtDate" runat="server" TargetControlID="txtDate"></ajax:CalendarExtender>
+                            <ajax:CalendarExtender ID="calExtDate" runat="server" TargetControlID="txtDate">
+                            </ajax:CalendarExtender>
                         </td>
                     </tr>
                     <tr>

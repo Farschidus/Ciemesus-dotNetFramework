@@ -274,7 +274,7 @@ public partial class PSM_List_Default : BaseCP
         Subjects subject = new Subjects();
         subject.LoadByIDSubjectAndIDLanguage(pIDSubject.Value, pLanguageID);
 
-        txtDate.Text = subject.pDate.ToShortDateString();
+        txtDate.Text = subject.pDate.ToString(Global.MethodsAndProps.DateFormat);
         txtAlias.Text = subject.pAlias;
         txtTitle.Text = subject.pTitle;
         HiddenField TCMEValue = (HiddenField)tinyMCE.FindControl("TCMEValue");
