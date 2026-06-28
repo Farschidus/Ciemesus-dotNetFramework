@@ -16,7 +16,7 @@
     <siteMapNode title="Properties" url="~/en_US/ControlP/Properties/" description="Properties" roles="Administrator" />
     <siteMapNode title="Pluggins" url="~/en_US/ControlP/Plugins/" description="Plugins" roles="Administrator" />
     <siteMapNode title="Categories" url="~/en_US/ControlP/Category/" description="Category" roles="Administrator" />
-    <siteMapNode title="Medias" url="~/en_US/ControlP/Media/" description="Media" roles="Administrator"  />
+    <siteMapNode title="Media" url="~/en_US/ControlP/Media/" description="Media" roles="Administrator"  />
     <siteMapNode title="Website Menus" url="~/en_US/ControlP/MenuManager/" description="MenuManager" roles="Administrator" />
     <siteMapNode title="Localisation" url="~/en_US/ControlP/Localization/" description="Localisation" roles="Administrator" />
   </siteMapNode>
